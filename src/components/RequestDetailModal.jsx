@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { BOARD_STAGES } from '../data/risks.js'
+import { formatOwnership } from '../utils/helpers.jsx'
 
 export default function RequestDetailModal({ card, role, linkedRisk, onClose, onAdvanceStage, onSaveNotes, onViewRisk }) {
   const [mgmtNotes, setMgmtNotes] = useState(card.mgmtNotes || '')
-  const isRiskMgmt = role === 'riskmgmt'
+  const isRiskMgmt = role !== 'businessunit'
   const stageIndex = BOARD_STAGES.indexOf(card.stage)
   const notesDirty = mgmtNotes !== (card.mgmtNotes || '')
 
@@ -62,7 +63,7 @@ export default function RequestDetailModal({ card, role, linkedRisk, onClose, on
             <>
               <div className="block-title">Linked risk register entry</div>
               <p style={{ margin: '0 0 8px', fontSize: 12.5, color: 'var(--ink-muted)' }}>
-                Nr {linkedRisk.nr} · IR {linkedRisk.ir} · RR {linkedRisk.rr} · {linkedRisk.owner}
+                Nr {linkedRisk.nr} · IR {linkedRisk.ir} · RR {linkedRisk.rr} · {formatOwnership(linkedRisk.ownership)}
               </p>
               <button type="button" className="btn ghost sm" onClick={() => onViewRisk(linkedRisk.nr)}>
                 Open in risk register

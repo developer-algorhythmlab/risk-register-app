@@ -1,6 +1,6 @@
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
-import { statusLabel } from "./helpers.jsx"
+import { statusLabel, formatOwnership } from "./helpers.jsx"
 
 export function exportReportPdf({ risks, filterLabel, summary, byBU, byStatus }) {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" })
@@ -75,7 +75,7 @@ export function exportReportPdf({ risks, filterLabel, summary, byBU, byStatus })
       statusLabel[r.status] || r.status,
       `${r.progressPct}%`,
       r.targetDate,
-      r.owner
+      formatOwnership(r.ownership)
     ]),
     theme: "grid",
     headStyles: { fillColor: [18, 42, 78] },

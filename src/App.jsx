@@ -5,30 +5,53 @@ import DashboardView from './components/DashboardView.jsx'
 import RegisterView from './components/RegisterView.jsx'
 import BoardView from './components/BoardView.jsx'
 import ReportsView from './components/ReportsView.jsx'
+import AdminView from './components/AdminView.jsx'
 import RiskPanel from './components/RiskPanel.jsx'
 import RiskFormModal from './components/RiskFormModal.jsx'
 import RequestUpdateModal from './components/RequestUpdateModal.jsx'
 import RequestDetailModal from './components/RequestDetailModal.jsx'
 import ProposalReviewModal from './components/ProposalReviewModal.jsx'
-import { RISKS, BOARD_CARDS, CURRENT_USER } from './data/risks.js'
-import { loadRisks, saveRisks, loadBoardCards, saveBoardCards } from './utils/storage.js'
+import { RISKS, BOARD_CARDS } from './data/risks.js'
+import { ORG_STRUCTURE, ROLE_PERSONAS, APPROVAL_CHAIN, ROLES } from './data/orgStructure.js'
+import {
+  loadRisks, saveRisks, loadBoardCards, saveBoardCards,
+  loadPeriod, savePeriod, loadOrgStructure, saveOrgStructure, loadPersonas, savePersonas
+} from './utils/storage.js'
 import { nextNr, uid, nowIso, appendScoreHistory } from './utils/helpers.jsx'
 import { diffRisk } from './utils/audit.js'
+import { defaultPeriod } from './utils/period.js'
+import { approverStageForRole } from './utils/permissions.js'
 
 export default function App() {
   const [view, setView] = useState('dashboard')
-  const [role, setRole] = useState('official')
+  const [role, setRole] = useState('businessunit')
   const [risks, setRisks] = useState(() => loadRisks(RISKS))
   const [boardCards, setBoardCards] = useState(() => loadBoardCards(BOARD_CARDS))
+  const [period, setPeriod] = useState(() => loadPeriod(defaultPeriod()))
+  const [orgStructure, setOrgStructure] = useState(() => loadOrgStructure(ORG_STRUCTURE))
+  const [personas, setPersonas] = useState(() => loadPersonas(ROLE_PERSONAS))
   const [selectedNr, setSelectedNr] = useState(null)
-  const [formModal, setFormModal] = useState(null) // { mode: 'create' | 'edit' | 'propose', risk }
+  const [formModal, setFormModal] = useState(null) // { mode: 'new' | 'edit', risk }
   const [requestModal, setRequestModal] = useState(null) // risk
   const [selectedCardId, setSelectedCardId] = useState(null)
   const [proposalReviewNr, setProposalReviewNr] = useState(null)
 
   useEffect(() => { saveRisks(risks) }, [risks])
   useEffect(() => { saveBoardCards(boardCards) }, [boardCards])
+  useEffect(() => { savePeriod(period) }, [period])
+  useEffect(() => { saveOrgStructure(orgStructure) }, [orgStructure])
+  useEffect(() => { savePersonas(personas) }, [personas])
 
+  // Administrator manages the org and doesn't work risks day to day - land
+  // there by default, and don't leave a stranded Admin tab open for anyone
+  // else if the role switch moves away from it.
+  useEffect(() => {
+    if (role === 'administrator') setView('admin')
+    else setView(v => (v === 'admin' ? 'dashboard' : v))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role])
+
+  const persona = personas[role]
   const selectedRisk = risks.find(r => r.nr === selectedNr) || null
   const selectedCard = boardCards.find(c => c.id === selectedCardId) || null
   const proposalReviewRisk = risks.find(r => r.nr === proposalReviewNr) || null
@@ -39,93 +62,143 @@ export default function App() {
   const anyModalOpen = Boolean(formModal || requestModal || selectedCardId || proposalReviewNr)
 
   function historyEntry(patch) {
-    return { id: uid(), timestamp: nowIso(), actor: CURRENT_USER.name, actorRole: role, ...patch }
+    return { id: uid(), timestamp: nowIso(), actor: persona.name, actorRole: role, ...patch }
   }
 
-  function addRisk(data) {
-    const nr = nextNr(risks)
-    const risk = {
-      ...data, nr,
-      history: [historyEntry({ action: 'created', summary: 'Risk added to the register.' })],
-      scoreHistory: appendScoreHistory([], data),
-      comments: [],
-      pendingChange: null
+  // A risk being edited may have an in-flight draft (Changes Required /
+  // Rejected / a fresh reassessment on an Approved risk) that differs from
+  // its last-published fields - the form should always edit that draft when
+  // one exists, never the stale published values underneath it.
+  function baseForEdit(risk) {
+    return risk.pendingChange ? { ...risk.pendingChange.data, nr: risk.nr } : risk
+  }
+
+  function saveDraft(nr, data) {
+    if (nr == null) {
+      const newNr = nextNr(risks)
+      const risk = {
+        ...data, nr: newNr,
+        history: [historyEntry({ action: 'created', summary: 'Risk captured as draft.' })],
+        scoreHistory: appendScoreHistory([], data),
+        comments: [],
+        approvalStatus: 'Draft', approvalStage: null,
+        pendingChange: null
+      }
+      setRisks(rs => [...rs, risk])
+      setFormModal(null)
+      setSelectedNr(newNr)
+      return
     }
-    setRisks(rs => [...rs, risk])
-    setFormModal(null)
-    setSelectedNr(nr)
-  }
-
-  function updateRisk(nr, data) {
     setRisks(rs => rs.map(r => {
       if (r.nr !== nr) return r
-      const diff = diffRisk(r, data)
-      const scoreChanged = r.ir !== data.ir || r.rr !== data.rr
-      const summary = r.pendingChange
-        ? 'Risk details updated directly (superseded a pending proposal).'
-        : 'Risk details updated.'
+      const editingDirectly = !r.pendingChange && r.approvalStatus === 'Draft'
+      const base = r.pendingChange ? r.pendingChange.data : r
+      const diff = diffRisk(base, data)
+      if (editingDirectly) {
+        const scoreChanged = r.ir !== data.ir || r.rr !== data.rr
+        return {
+          ...r, ...data, nr,
+          approvalStatus: 'Draft',
+          history: [...r.history, historyEntry({ action: 'edited', summary: 'Draft updated.', diff })],
+          scoreHistory: scoreChanged ? appendScoreHistory(r.scoreHistory, data) : r.scoreHistory
+        }
+      }
+      // Reworking after Changes Required / Rejected, or starting a fresh
+      // reassessment on an Approved risk - the published fields stay put
+      // until this new round is itself approved.
       return {
-        ...data, nr,
-        history: [...r.history, historyEntry({ action: 'edited', summary, diff })],
-        scoreHistory: scoreChanged ? appendScoreHistory(r.scoreHistory, data) : r.scoreHistory,
-        comments: r.comments,
-        pendingChange: null
+        ...r,
+        approvalStatus: 'Draft',
+        pendingChange: { data, submittedBy: null, submittedByRole: null, submittedAt: null },
+        history: [...r.history, historyEntry({ action: 'edited', summary: r.approvalStatus === 'Approved' ? 'Started a new reassessment.' : 'Draft updated.', diff })]
       }
     }))
     setFormModal(null)
   }
 
-  function deleteRisk(nr) {
-    setRisks(rs => rs.filter(r => r.nr !== nr))
-    setFormModal(null)
-    setSelectedNr(null)
-  }
-
-  function proposeChange(nr, data) {
-    setRisks(rs => rs.map(r => r.nr === nr ? {
-      ...r,
-      pendingChange: { data, proposedBy: CURRENT_USER.name, proposedByRole: role, proposedAt: nowIso() },
-      history: [...r.history, historyEntry({ action: 'proposed', summary: 'Submitted proposed changes for approval.' })]
-    } : r))
-    setFormModal(null)
-  }
-
-  function approveChange(nr) {
+  function submitForApproval(nr, data) {
+    if (nr == null) {
+      const newNr = nextNr(risks)
+      const risk = {
+        ...data, nr: newNr,
+        history: [
+          historyEntry({ action: 'created', summary: 'Risk captured as draft.' }),
+          historyEntry({ action: 'proposed', summary: 'Submitted for approval.' })
+        ],
+        scoreHistory: appendScoreHistory([], data),
+        comments: [],
+        approvalStatus: 'Submitted', approvalStage: APPROVAL_CHAIN[0],
+        pendingChange: { data, submittedBy: persona.name, submittedByRole: role, submittedAt: nowIso() }
+      }
+      setRisks(rs => [...rs, risk])
+      setFormModal(null)
+      setSelectedNr(newNr)
+      return
+    }
     setRisks(rs => rs.map(r => {
-      if (r.nr !== nr || !r.pendingChange) return r
+      if (r.nr !== nr) return r
+      const base = r.pendingChange ? r.pendingChange.data : r
+      const diff = diffRisk(base, data)
+      return {
+        ...r,
+        approvalStatus: 'Submitted', approvalStage: APPROVAL_CHAIN[0],
+        pendingChange: { data, submittedBy: persona.name, submittedByRole: role, submittedAt: nowIso() },
+        history: [...r.history, historyEntry({ action: 'proposed', summary: 'Submitted for approval.', diff })]
+      }
+    }))
+    setFormModal(null)
+  }
+
+  function authoriseStage(nr) {
+    setRisks(rs => rs.map(r => {
+      if (r.nr !== nr || !r.pendingChange || r.approvalStage !== approverStageForRole(role)) return r
+      const stageIdx = APPROVAL_CHAIN.indexOf(r.approvalStage)
+      const isFinal = stageIdx === APPROVAL_CHAIN.length - 1
+      if (!isFinal) {
+        const nextStage = APPROVAL_CHAIN[stageIdx + 1]
+        return {
+          ...r,
+          approvalStage: nextStage,
+          history: [...r.history, historyEntry({ action: 'approved', summary: `Authorised — moved to ${ROLES[nextStage].label}.` })]
+        }
+      }
       const data = r.pendingChange.data
       const diff = diffRisk(r, data)
       const scoreChanged = r.ir !== data.ir || r.rr !== data.rr
       return {
         ...data, nr,
-        history: [...r.history, historyEntry({ action: 'approved', summary: `Approved changes proposed by ${r.pendingChange.proposedBy}.`, diff })],
+        history: [...r.history, historyEntry({ action: 'approved', summary: 'Authorised — approved and applied to the register.', diff })],
         scoreHistory: scoreChanged ? appendScoreHistory(r.scoreHistory, data) : r.scoreHistory,
         comments: r.comments,
+        approvalStatus: 'Approved', approvalStage: null,
         pendingChange: null
       }
     }))
     setProposalReviewNr(null)
   }
 
-  function rejectChange(nr, reason) {
-    setRisks(rs => rs.map(r => {
-      if (r.nr !== nr || !r.pendingChange) return r
-      const summary = reason
-        ? `Rejected proposed changes from ${r.pendingChange.proposedBy}: ${reason}`
-        : `Rejected proposed changes from ${r.pendingChange.proposedBy}.`
-      return {
-        ...r,
-        pendingChange: null,
-        history: [...r.history, historyEntry({ action: 'rejected', summary })]
-      }
-    }))
+  function requestChanges(nr, comment) {
+    setRisks(rs => rs.map(r => r.nr === nr ? {
+      ...r,
+      approvalStatus: 'Changes Required', approvalStage: null,
+      history: [...r.history, historyEntry({ action: 'changes-requested', summary: `Requested changes: ${comment}` })]
+    } : r))
+    setProposalReviewNr(null)
+  }
+
+  function rejectSubmission(nr, reason) {
+    setRisks(rs => rs.map(r => r.nr === nr ? {
+      ...r,
+      approvalStatus: 'Rejected', approvalStage: null,
+      history: [...r.history, historyEntry({ action: 'rejected', summary: `Rejected: ${reason}` })]
+    } : r))
     setProposalReviewNr(null)
   }
 
   function addComment(nr, text) {
     setRisks(rs => rs.map(r => r.nr === nr ? {
       ...r,
-      comments: [...(r.comments || []), { id: uid(), author: CURRENT_USER.name, role, text: text.trim(), timestamp: nowIso() }]
+      comments: [...(r.comments || []), { id: uid(), author: persona.name, role, text: text.trim(), timestamp: nowIso() }]
     } : r))
   }
 
@@ -162,7 +235,7 @@ export default function App() {
   return (
     <>
       <Header role={role} setRole={setRole} />
-      <NavTabs view={view} setView={setView} />
+      <NavTabs view={view} setView={setView} role={role} />
 
       <div className="wrap">
         {view === 'dashboard' && (
@@ -170,34 +243,49 @@ export default function App() {
             risks={risks}
             boardCards={boardCards}
             role={role}
+            persona={persona}
+            orgStructure={orgStructure}
+            period={period}
+            onTogglePeriod={() => setPeriod(p => ({ ...p, open: !p.open }))}
             onNavigate={setView}
             onOpenRisk={setSelectedNr}
             onOpenProposalReview={setProposalReviewNr}
             onOpenCard={c => setSelectedCardId(c.id)}
-            onQuickAdd={() => setFormModal({ mode: 'create', risk: null })}
+            onQuickAdd={() => setFormModal({ mode: 'new', risk: null })}
           />
         )}
         {view === 'register' && (
           <RegisterView
             risks={risks}
             role={role}
+            persona={persona}
+            orgStructure={orgStructure}
+            periodOpen={period.open}
             onSelectRisk={r => setSelectedNr(r.nr)}
-            onAddRisk={() => setFormModal({ mode: 'create', risk: null })}
+            onAddRisk={() => setFormModal({ mode: 'new', risk: null })}
           />
         )}
         {view === 'board' && (
           <BoardView boardCards={boardCards} onSelectCard={c => setSelectedCardId(c.id)} />
         )}
         {view === 'reports' && <ReportsView risks={risks} />}
+        {view === 'admin' && (
+          <AdminView
+            orgStructure={orgStructure}
+            onChangeOrgStructure={setOrgStructure}
+            personas={personas}
+            onChangePersonas={setPersonas}
+          />
+        )}
       </div>
 
       {selectedRisk && !anyModalOpen && (
         <RiskPanel
           risk={selectedRisk}
           role={role}
+          periodOpen={period.open}
           onClose={() => setSelectedNr(null)}
-          onEdit={() => setFormModal({ mode: 'edit', risk: selectedRisk })}
-          onPropose={() => setFormModal({ mode: 'propose', risk: selectedRisk })}
+          onOpenForm={() => setFormModal({ mode: 'edit', risk: baseForEdit(selectedRisk) })}
           onRequestUpdate={() => setRequestModal(selectedRisk)}
           onReviewProposal={() => setProposalReviewNr(selectedRisk.nr)}
           onAddComment={addComment}
@@ -208,12 +296,11 @@ export default function App() {
         <RiskFormModal
           mode={formModal.mode}
           risk={formModal.risk}
-          defaultBusinessUnit={role === 'official' ? CURRENT_USER.businessUnit : ''}
+          defaultBusinessUnit={persona.businessUnit}
+          orgStructure={orgStructure}
           onCancel={() => setFormModal(null)}
-          onCreate={addRisk}
-          onSave={data => updateRisk(formModal.risk.nr, data)}
-          onPropose={data => proposeChange(formModal.risk.nr, data)}
-          onDelete={() => deleteRisk(formModal.risk.nr)}
+          onSaveDraft={data => saveDraft(formModal.risk ? formModal.risk.nr : null, data)}
+          onSubmit={data => submitForApproval(formModal.risk ? formModal.risk.nr : null, data)}
         />
       )}
 
@@ -240,10 +327,11 @@ export default function App() {
       {proposalReviewRisk && (
         <ProposalReviewModal
           risk={proposalReviewRisk}
-          readOnly={role !== 'riskmgmt'}
+          canAct={proposalReviewRisk.approvalStage === approverStageForRole(role)}
           onClose={() => setProposalReviewNr(null)}
-          onApprove={() => approveChange(proposalReviewRisk.nr)}
-          onReject={reason => rejectChange(proposalReviewRisk.nr, reason)}
+          onAuthorise={() => authoriseStage(proposalReviewRisk.nr)}
+          onRequestChanges={comment => requestChanges(proposalReviewRisk.nr, comment)}
+          onReject={reason => rejectSubmission(proposalReviewRisk.nr, reason)}
         />
       )}
     </>

@@ -1,9 +1,11 @@
 import logo from '../assets/gpg-logo.png'
-import { CURRENT_USER } from '../data/risks.js'
+import { ROLES, ROLE_PERSONAS } from '../data/orgStructure.js'
 
 export default function Header({ role, setRole }) {
-  const initials = CURRENT_USER.name.split(' ').map(p => p[0]).join('')
-  const roleLabel = role === 'riskmgmt' ? 'Risk management office' : CURRENT_USER.businessUnit
+  const persona = ROLE_PERSONAS[role]
+  const initials = persona.name.split(' ').map(p => p[0]).join('')
+  const scopeLabel = persona.businessUnit || persona.chiefDirectorate || 'EGOV'
+
   return (
     <div className="topbar">
       <div className="brand">
@@ -14,11 +16,12 @@ export default function Header({ role, setRole }) {
         <div className="role-switch">
           Viewing as
           <select value={role} onChange={e => setRole(e.target.value)}>
-            <option value="official">Risk official</option>
-            <option value="riskmgmt">Risk management office</option>
+            {Object.entries(ROLES).map(([key, r]) => (
+              <option key={key} value={key}>{r.label}</option>
+            ))}
           </select>
         </div>
-        <div className="user"><div className="av">{initials}</div>{CURRENT_USER.name} · {roleLabel}</div>
+        <div className="user"><div className="av">{initials}</div>{persona.name} · {scopeLabel}</div>
       </div>
     </div>
   )

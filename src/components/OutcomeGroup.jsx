@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
-import { scoreClass, statusLabel, StatusFace } from '../utils/helpers.jsx'
+import { scoreClass, statusLabel, formatOwnership, StatusFace } from '../utils/helpers.jsx'
+
+const APPROVAL_TONE = {
+  Draft: 'neutral', Submitted: 'info', 'Changes Required': 'warn', Rejected: 'bad', Approved: 'good'
+}
 
 function ProgressBar({ pct }) {
   const [width, setWidth] = useState(0)
@@ -54,7 +58,10 @@ export default function OutcomeGroup({ outcome, risks, onSelectRisk }) {
                 >
                   <td>{r.nr}</td>
                   <td>
-                    <div className="risk-name">{r.risk}</div>
+                    <div className="risk-name">
+                      {r.risk}
+                      {r.riskType === 'Compliance' && <span className="type-badge">Compliance</span>}
+                    </div>
                     <div className="sub">{r.businessUnit}</div>
                   </td>
                   <td className="sub">{r.category}</td>
@@ -66,11 +73,12 @@ export default function OutcomeGroup({ outcome, risks, onSelectRisk }) {
                     <ProgressBar pct={r.progressPct} />
                   </td>
                   <td>
-                    <div className="sub">{r.owner}</div>
+                    <div className="sub">{formatOwnership(r.ownership)}</div>
                     <div className="status-cell">
                       <StatusFace status={r.status} />
                       <span className="status-label">{statusLabel[r.status]}</span>
                     </div>
+                    <span className={'approval-pill tone-' + APPROVAL_TONE[r.approvalStatus]}>{r.approvalStatus}</span>
                   </td>
                 </tr>
               ))}

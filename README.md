@@ -1,10 +1,10 @@
-# Gauteng Province — Risk Register (prototype)
+# EGOV Risk Register (prototype)
 
-A React/Vite rebuild of the risk register prototype, mirroring the BarnOwl-style
-register (NR / Risk / Category / Root causes / IR / Controls / RR / Response /
-Action Plan / Progress / Target date / Owner / Status) and the As-Is assessment
-workflow (Business Unit submits → Risk Management receives, schedules, conducts,
-reports).
+A React/Vite risk register for the Gauteng Department of e-Government (EGOV),
+mirroring the BarnOwl-style register (NR / Risk / Category / Root causes /
+IR / Controls / RR / Response / Action Plan / Progress / Target date /
+Owner / Status) and modelled on AlgoAtWork's **SCM Procurement Plan** system
+for its five-role capture → approval workflow.
 
 ## Getting started
 
@@ -22,122 +22,141 @@ npm run build
 npm run preview
 ```
 
-**Note:** the risk data schema changed to add likelihood/impact scoring,
-audit history, comments and proposals. If you have an older version of this
-app open in the same browser, clear its site data (or open in a private
-window) so it doesn't try to load the old-shaped records from `localStorage`.
+**Note:** the risk schema has changed twice now (likelihood/impact scoring
++ audit trail, then the five-role approval chain + compliance fields). If
+you have an older version of this app open in the same browser, clear its
+site data (or open in a private window) so it doesn't try to load
+old-shaped records from `localStorage` — the storage keys are versioned
+(`grr.risks.v2`, etc.) specifically so this fails safe rather than crashing.
+
+## Roles
+
+Five roles, modelled directly on the SCM Procurement Plan manual's
+Director → Chief Director → DDG → SCM Manager/CFO chain:
+
+| Role | Scope | Can do |
+|---|---|---|
+| Business Unit | Own business unit | Capture/edit risks (Draft, Changes Required, Rejected, or a fresh round on an Approved risk), submit for approval, comment, request an assessment |
+| Chief Director | Own chief directorate | 1st approval stage: authorise / request changes / reject |
+| DDG | Whole of EGOV | 2nd approval stage: authorise / request changes / reject |
+| CRO | Whole of EGOV | Final approval stage (applies the change to the register); owns opening/closing the capture period for a financial year |
+| Administrator | System-wide | Manages the org structure (Branch → Chief Directorate → Business Unit) and the demo personas; doesn't touch the approval chain |
+
+There's no real login — `src/data/orgStructure.js` has one named demo
+persona per role (`ROLE_PERSONAS`), and "Viewing as" in the header just
+swaps which persona you're acting as. Real auth is a production concern,
+not solved here on purpose.
+
+## Approval workflow
+
+```
+Business Unit (Draft) → Chief Director → DDG → CRO → Approved
+```
+
+At each stage the approver can **Authorise** (moves to the next stage; only
+the CRO's authorise actually applies the change to the published register —
+earlier stages just advance it), **Request changes** (comment required,
+returns to Business Unit), or **Reject** (reason required, returns to
+Business Unit — deliberately *not* terminal, unlike the SCM manual this is
+modelled on). A risk's `approvalStatus`/`approvalStage` are tracked
+separately from its own on-track/overdue status — see `src/utils/permissions.js`
+and the `authoriseStage`/`requestChanges`/`rejectSubmission` functions in
+`App.jsx`.
 
 ## Project structure
 
 ```
 src/
-  App.jsx                    top-level state: risks, board cards, role, open modals
-  main.jsx                   React entry point
-  index.css                  design tokens + all component styles
-  data/risks.js               seed risk register, board data, canonical lists
-  utils/helpers.jsx          score bands, FY/month helpers, score-history merge, empty-risk factory
-  utils/storage.js           localStorage load/save for risks + board cards
-  utils/audit.js             field-level diffing for the audit trail + proposal review
-  utils/reminders.js         loose date parsing + overdue/due-soon detection
-  utils/pdfExport.js         jsPDF report generation
-  utils/csvExport.js         CSV report generation
+  App.jsx                     top-level state: risks, board cards, role, period, org structure, open modals
+  main.jsx                    React entry point
+  index.css                   design tokens + all component styles
+  data/
+    risks.js                   seed risk register + board data + canonical category/response/outcome lists
+    orgStructure.js             Branch -> Chief Directorate -> Business Unit, roles, approval chain, demo personas
+    complianceUniverse.js       reference list of Acts/Regulations a Compliance-type risk selects from
+  utils/
+    helpers.jsx                 score bands, FY/month helpers, score-history merge, empty-risk factory, ownership formatting
+    permissions.js               role-based scoping (which risks a role sees) and edit/create checks
+    period.js                    FY capture-period defaults
+    storage.js                   localStorage load/save for risks, board cards, period, org structure, personas
+    audit.js                     field-level diffing for the audit trail + proposal review
+    reminders.js                 loose date parsing + overdue/due-soon detection
+    pdfExport.js / csvExport.js  report export
   components/
-    Header.jsx                client logo, system name, role switcher
-    NavTabs.jsx                Dashboard / Risk register / Assessment requests / Reports tabs
-    DashboardView.jsx          role-aware landing dashboard (see below)
-    Toolbar.jsx                business unit / category / status filters + search + add risk
-    RegisterView.jsx           filtered risk list, grouped by outcome
-    OutcomeGroup.jsx           one collapsible outcome group + its risk table
-    RiskPanel.jsx              risk detail: scores, action plan, score history, audit trail, discussion
-    RiskFormModal.jsx          add / edit / propose-changes form (likelihood × impact, dynamic lists)
-    ProposalReviewModal.jsx    diff view + approve/reject for a proposed change
-    RequestUpdateModal.jsx     risk-official's "request assessment update" form
-    RequestDetailModal.jsx     assessment-request detail: stage tracker, notes, stage advance
-    BoardView.jsx              assessment-request Kanban board
-    ReportsView.jsx            filters (FY/month/BU) + metrics + heat map + trend + PDF/CSV export
-    RiskHeatmap.jsx            reusable 5×5 likelihood × impact heat map
-    TrendChart.jsx             reusable inline-SVG IR/RR line chart
-    DiffList.jsx               reusable before/after field diff renderer
-    StatWidgets.jsx            CountUp / AnimatedBar / StatTile, shared by Dashboard + Reports
-  assets/gpg-logo.png          client crest, used in the header
+    Header.jsx                  role switcher (5 roles), persona display
+    NavTabs.jsx                  Dashboard / Risk register / Assessment requests / Reports (+ Administration for admins)
+    DashboardView.jsx            role-aware landing dashboard (see below)
+    Toolbar.jsx                  cascading Branch/Chief Directorate/Business Unit filters + category/status/search + add risk
+    RegisterView.jsx             filtered risk list, grouped by outcome, scoped by role
+    OutcomeGroup.jsx             one collapsible outcome group + its risk table
+    RiskPanel.jsx                risk detail: scores, legislative fields (if Compliance), action plan, score history, audit trail, discussion
+    RiskFormModal.jsx            capture/edit form: risk type, compliance fields, likelihood x impact, ownership, dynamic lists
+    ProposalReviewModal.jsx      stage tracker + diff view + authorise/request-changes/reject
+    RequestUpdateModal.jsx       Business Unit's "request assessment update" form
+    RequestDetailModal.jsx       assessment-request detail: stage tracker, notes, stage advance
+    BoardView.jsx                assessment-request Kanban board
+    AdminView.jsx                org structure editor + demo persona roster
+    ReportsView.jsx              filters (FY/month/BU) + metrics + heat map + trend + PDF/CSV export
+    RiskHeatmap.jsx / TrendChart.jsx / DiffList.jsx / StatWidgets.jsx   reusable pieces
+  assets/gpg-logo.png            client crest, used in the header
 ```
 
 ## Data model
 
-`src/data/risks.js` holds the seed data and canonical lists (`BUSINESS_UNITS`,
-`CATEGORIES`, `RESPONSES`, `OUTCOMES`, `CURRENT_USER`). Each risk carries:
+Each risk (`src/data/risks.js`) carries:
 
+- `riskType` — `Operational` or `Compliance`. Compliance risks additionally
+  carry `act` (a name from `complianceUniverse.js` — category and purpose
+  are looked up from there, never duplicated per risk) and
+  `provisionReference` (free text, the specific clause this risk relates to).
 - `irLikelihood`/`irImpact` and `rrLikelihood`/`rrImpact` (1–5 each), with
   `ir`/`rr` derived as their product — this is what feeds the heat map.
+- `ownership` — `{ accountableUnit, responsiblePersons: [] }`, replacing a
+  single free-text owner. `accountableUnit` can be a business unit or a
+  chief directorate (real compliance risks are often owned at chief
+  directorate level even though the risk itself sits under one business unit).
+- `approvalStatus` / `approvalStage` — see Approval workflow above. Kept
+  separate from `status` (the risk's own on-track/at-risk/overdue indicator).
+- `pendingChange` — the in-flight draft while a risk is Submitted/Changes
+  Required/Rejected, or while a fresh reassessment round has started on an
+  Approved risk. The risk's top-level fields stay frozen at the last
+  *approved* values until the CRO authorises the new round — so anyone
+  viewing the register mid-review never sees an unapproved edit.
 - `scoreHistory` — a `{date, ir, rr}` point per reassessment, feeding the
   trend charts.
-- `history` — an audit trail (`created`/`edited`/`proposed`/`approved`/
-  `rejected` entries, each with actor, timestamp, and an optional field diff).
+- `history` — a full audit trail (`created`/`edited`/`proposed`/
+  `changes-requested`/`rejected`/`approved`), each entry with actor, role,
+  timestamp, and an optional field-level diff.
 - `comments` — a discussion thread on the risk.
-- `pendingChange` — set when a Risk official has a change awaiting approval
-  (`{data, proposedBy, proposedAt}`); `null` otherwise.
 
-Live state is lifted into `App.jsx` (`risks`, `boardCards`) and persisted to
-`localStorage` via `src/utils/storage.js`, so everything survives a page
-refresh. That's the seam to replace with a real backend later — swap the
-storage helpers for fetch/API calls and the components won't need to change.
+`src/data/orgStructure.js` holds the Branch → Chief Directorate → Business
+Unit hierarchy. Only "Resource Management" and its four business units
+(Human Resource, Security & Auxiliary Services, HRD, DRMC) are real,
+confirmed EGOV structure — everything else is clearly-marked placeholder
+(`"... (placeholder)"`) pending the rest of the org chart. Swapping
+placeholder names for real ones is a pure data change; nothing else reads
+hardcoded org names.
 
-## What's functional
-
-- **Dashboard (per role)** — a landing view with a hero summary, stat tiles,
-  a heat map, a score trend chart, an "Attention needed" reminders panel, and
-  a pending-approvals / my-proposals widget. Risk official sees their own
-  business unit only; Risk management office sees the whole province plus a
-  province-wide "Risks by business unit" chart and a `+ Add risk` shortcut.
-- **Add / edit / delete a risk** — Risk management office can add a risk,
-  edit any risk directly, or delete one from the edit form. Root causes,
-  controls, and action-plan rows are dynamic (add/remove). Inherent and
-  residual risk are scored as Likelihood × Impact (1–5 each) rather than a
-  raw 1–25 number, which is what powers the heat map.
-- **Propose → approve/reject workflow** — a Risk official can't edit a risk
-  directly; they submit a **proposed change** (same form, business unit
-  locked) which a Risk management office reviewer opens in a **diff view**
-  (`ProposalReviewModal`) and approves or rejects with an optional reason.
-  Approving applies the change and logs it to the risk's audit trail.
-- **Audit trail** — every create/edit/propose/approve/reject is recorded on
-  the risk (`risk.history`), with a field-level before/after diff where
-  relevant, visible in the risk panel.
-- **Score history + trend charts** — every scored change appends a
-  `{date, ir, rr}` point; the risk panel shows a per-risk sparkline, and
-  Reports/Dashboard show a portfolio-wide trend (each risk's latest known
-  score, averaged, over time).
-- **5×5 risk heat map** — Likelihood × Impact grid, colour-banded, with a
-  toggle between inherent and residual, shown on both the Dashboard and
-  Reports.
-- **Overdue / upcoming reminders** — risk target dates and action-plan
-  target dates are parsed and surfaced as "overdue" or "due within 30 days"
-  on the Dashboard's "Attention needed" panel (BU-scoped for officials,
-  province-wide for risk management).
-- **Discussion thread** — each risk has a comment thread (author, role,
-  timestamp) for back-and-forth between a business unit and risk management,
-  visible in the risk panel.
-- **Assessment requests board** — cards are clickable and open a detail view
-  with a stage tracker; Risk management office can advance a request through
-  its stages and leave notes, and jump straight to the linked risk register
-  entry if there is one.
-- **Reports + PDF/CSV export** — filters by financial year (Apr–Mar GPG FY,
-  derived from each risk's assessment date), month, business unit, or an
-  "Overall report" (all data). "Export PDF" (jsPDF + jspdf-autotable) and
-  "Export CSV" both respect the active filters.
-- **Role-based behaviour** — switching "Viewing as" changes what you can do,
-  not just a label: see the propose/approve workflow above, plus Risk
-  official's register/dashboard views are scoped to their own business unit.
+Live state is lifted into `App.jsx` and persisted to `localStorage` via
+`src/utils/storage.js`, so everything survives a page refresh. That's the
+seam to replace with a real backend later — swap the storage helpers for
+fetch/API calls and the components won't need to change.
 
 ## Known gaps / next steps
 
-- **No real backend** — persistence is `localStorage` only, per browser. A
-  production rollout needs a real API/database and server-side access
-  control (the current role gating is client-side only, by design for demo
-  purposes — "Viewing as" is a switch, not authentication).
-- **Loose-text dates** — `targetDate` and action-plan `target` are free text
-  (matching the source register's style); the reminders parser only
-  recognises "D Mon YYYY" and silently skips anything else (e.g. "2027/2028
-  FY"). A structured date field would make this more robust.
+- **No real backend or auth** — persistence is `localStorage` only, per
+  browser; the role switch is a demo convenience, not login. A production
+  rollout needs a real API/database and server-side access control.
+- **Compliance-review stage** — the SCM manual's SCM Manager compliance
+  review is currently absorbed into the CRO's final approval, per the
+  client's decision. The approval chain is an ordered array
+  (`APPROVAL_CHAIN` in `orgStructure.js`) specifically so inserting a
+  distinct stage later is a small change, not a rewrite.
+- **Rest of the EGOV org chart** — only Resource Management is confirmed
+  real; the remaining branches/chief directorates are placeholder.
+- **Loose-text dates** — `targetDate` and action-plan `target` are free text;
+  the reminders parser only recognises "D Mon YYYY" and silently skips
+  anything else (e.g. "2027/2028 FY" or "Monthly"). A structured date field
+  would make this more robust.
 - Logo currently in `src/assets/gpg-logo.png` reads "Gauteng Province
-  Education" — confirm this is the right crest for the e-Government system
-  before this goes further, since the register spans multiple business units.
+  Education" — confirm this is the right crest for EGOV.

@@ -87,9 +87,25 @@ export function computePortfolioTrend(risks) {
   })
 }
 
+export const RISK_TYPES = ["Operational", "Compliance"]
+
+// Applies to every risk type, not just Compliance - an accountable org unit
+// plus the named people actually responsible, rather than one free-text
+// "owner" string.
+export function emptyOwnership(defaults = {}) {
+  return { accountableUnit: defaults.accountableUnit || "", responsiblePersons: [""] }
+}
+
+export function formatOwnership(ownership) {
+  if (!ownership) return ""
+  const people = (ownership.responsiblePersons || []).filter(Boolean).join("; ")
+  return people || ownership.accountableUnit || ""
+}
+
 export function emptyRisk(defaults = {}) {
   return {
     nr: null,
+    riskType: "Operational",
     outcome: "",
     businessUnit: defaults.businessUnit || "",
     category: "",
@@ -104,7 +120,9 @@ export function emptyRisk(defaults = {}) {
     rr: 9,
     response: "Mitigate",
     actionPlan: [{ plan: "", progress: "", target: "", status: "amber" }],
-    owner: "",
+    act: "",
+    provisionReference: "",
+    ownership: emptyOwnership({ accountableUnit: defaults.businessUnit }),
     targetDate: "",
     status: "amber",
     progressPct: 0,
@@ -112,11 +130,13 @@ export function emptyRisk(defaults = {}) {
     history: [],
     scoreHistory: [],
     comments: [],
+    approvalStatus: "Draft",
+    approvalStage: null,
     pendingChange: null
   }
 }
 
-export const statusLabel = { green: "On track", amber: "At risk", red: "Delayed" }
+export const statusLabel = { green: "On track", amber: "At risk", red: "Overdue" }
 
 const FACE_COLORS = {
   green: { fg: "#3B6D11", bg: "#EAF3DE" },

@@ -121,6 +121,13 @@
   .form-field input:focus, .form-field select:focus, .form-field textarea:focus{outline:none;border-color:var(--gp-blue-500);box-shadow:0 0 0 3px var(--gp-blue-100);}
   .list-row{display:flex;gap:8px;margin-bottom:6px;align-items:center;}
   .list-row input{flex:1;}
+  .field-caption{font-size:11px;color:var(--ink-faint);margin-top:5px;}
+  .compliance-fields{border:1px solid var(--gp-blue-500);background:var(--gp-blue-050);border-radius:8px;padding:14px;margin-bottom:14px;}
+  .compliance-fields .form-field:last-child{margin-bottom:0;}
+
+  /* risk-type badge, on the register row and the panel header */
+  .type-badge{display:inline-block;margin-left:8px;vertical-align:middle;border:1px solid var(--gold-500);background:var(--gold-100);color:var(--gold-700);border-radius:20px;padding:1px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+  .type-badge.on-dark{border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.12);color:#fff;}
   .ap-form-item{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:8px;}
   .ap-form-item input{margin-bottom:6px;}
   .ap-form-row{display:grid;grid-template-columns:1fr 130px auto;gap:8px;align-items:center;}
@@ -190,8 +197,26 @@
   .score-picker .field-row{margin-bottom:0;}
 
   /* pending-change banner in the risk panel */
-  .pending-banner{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--amber-bg);border:1px solid var(--amber-line);color:var(--amber-fg);border-radius:8px;padding:10px 14px;font-size:12.5px;margin-bottom:16px;}
-  .pending-banner strong{color:inherit;}
+  /* approval-status tones, reused by the panel banner, register pill, and period banner */
+  .tone-good{background:var(--green-bg);border-color:var(--green-line);color:var(--green-fg);}
+  .tone-warn{background:var(--amber-bg);border-color:var(--amber-line);color:var(--amber-fg);}
+  .tone-bad{background:var(--red-bg);border-color:var(--red-line);color:var(--red-fg);}
+  .tone-info{background:var(--gp-blue-100);border-color:var(--gp-blue-500);color:var(--gp-blue-700);}
+  .tone-neutral{background:var(--line-soft);border-color:var(--line);color:var(--ink-muted);}
+
+  .approval-banner{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid;border-radius:8px;padding:10px 14px;font-size:12.5px;margin-bottom:16px;}
+  .approval-banner strong{color:inherit;}
+
+  .approval-pill{display:inline-block;margin-top:4px;border:1px solid;border-radius:20px;padding:2px 9px;font-size:10.5px;font-weight:600;}
+
+  .period-banner{border:1px solid;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:16px;background:var(--gp-blue-100);border-color:var(--gp-blue-500);color:var(--gp-blue-700);}
+
+  /* admin: org structure editor */
+  .org-branch{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;background:var(--card);}
+  .org-branch > .list-row input{font-weight:600;font-size:13.5px;}
+  .org-children{margin:10px 0 0 16px;padding-left:14px;border-left:2px solid var(--line-soft);display:flex;flex-direction:column;gap:10px;}
+  .org-cd .list-row input{font-weight:600;}
+  .org-bu-list{margin:6px 0 0 16px;padding-left:14px;border-left:2px solid var(--line-soft);display:flex;flex-direction:column;gap:6px;}
 
   /* audit trail */
   .history-list{display:flex;flex-direction:column;gap:10px;margin-bottom:6px;}

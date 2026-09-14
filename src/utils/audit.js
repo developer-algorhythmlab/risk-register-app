@@ -1,6 +1,7 @@
 // Field-level diffing used by the audit trail and the proposed-changes review modal.
 
 export const FIELD_LABELS = {
+  riskType: "Risk type",
   outcome: "Outcome",
   businessUnit: "Business unit",
   category: "Category",
@@ -13,7 +14,9 @@ export const FIELD_LABELS = {
   rrImpact: "Residual impact",
   response: "Risk response",
   actionPlan: "Action plan",
-  owner: "Risk owner",
+  act: "Act / regulation",
+  provisionReference: "Provision reference",
+  ownership: "Ownership",
   targetDate: "Target date",
   status: "Overall status",
   progressPct: "Overall progress",
@@ -21,6 +24,11 @@ export const FIELD_LABELS = {
 }
 
 function stringifyField(field, v) {
+  if (field === "ownership") {
+    if (!v) return "—"
+    const people = (v.responsiblePersons || []).filter(Boolean).join("; ")
+    return [v.accountableUnit, people].filter(Boolean).join(" · ") || "—"
+  }
   if (Array.isArray(v)) {
     if (!v.length) return "—"
     if (field === "actionPlan") return v.map(a => a.plan).filter(Boolean).join("; ") || "—"

@@ -1,42 +1,56 @@
 import { useEffect, useMemo, useState } from 'react'
 import Toolbar from './Toolbar.jsx'
 import OutcomeGroup from './OutcomeGroup.jsx'
-import { CURRENT_USER } from '../data/risks.js'
+import { findOrgPath } from '../data/orgStructure.js'
+import { scopeRisksForRole, canCreateRisk } from '../utils/permissions.js'
 
-export default function RegisterView({ risks, role, onSelectRisk, onAddRisk }) {
-  const isOfficial = role === 'official'
-  const [filters, setFilters] = useState({
-    bu: isOfficial ? CURRENT_USER.businessUnit : '',
-    cat: '', status: '', q: ''
-  })
+const EMPTY_FILTERS = { branch: '', chiefDirectorate: '', businessUnit: '', cat: '', status: '', q: '' }
+
+export default function RegisterView({ risks, role, persona, orgStructure, periodOpen, onSelectRisk, onAddRisk }) {
+  const lockLevel = role === 'businessunit' ? 'businessunit' : role === 'chiefdirector' ? 'chiefdirector' : null
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
 
   useEffect(() => {
-    if (isOfficial) setFilters(f => ({ ...f, bu: CURRENT_USER.businessUnit }))
-  }, [isOfficial])
+    if (role === 'businessunit') {
+      const path = findOrgPath(persona.businessUnit, orgStructure)
+      setFilters(f => ({ ...f, branch: path.branch || '', chiefDirectorate: path.chiefDirectorate || '', businessUnit: persona.businessUnit }))
+    } else if (role === 'chiefdirector') {
+      const branch = orgStructure.find(b => b.chiefDirectorates.some(cd => cd.name === persona.chiefDirectorate))?.branch || ''
+      setFilters(f => ({ ...f, branch, chiefDirectorate: persona.chiefDirectorate, businessUnit: '' }))
+    } else {
+      setFilters(EMPTY_FILTERS)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role])
 
-  const businessUnits = useMemo(() => [...new Set(risks.map(r => r.businessUnit))].sort(), [risks])
+  const scopedRisks = useMemo(() => scopeRisksForRole(risks, role, persona, orgStructure), [risks, role, persona, orgStructure])
   const categories = useMemo(() => [...new Set(risks.map(r => r.category))].sort(), [risks])
 
-  const filtered = useMemo(() => risks.filter(r =>
-    (!filters.bu || r.businessUnit === filters.bu) &&
-    (!filters.cat || r.category === filters.cat) &&
-    (!filters.status || r.status === filters.status) &&
-    (!filters.q ||
-      r.risk.toLowerCase().includes(filters.q.toLowerCase()) ||
-      r.businessUnit.toLowerCase().includes(filters.q.toLowerCase()))
-  ), [risks, filters])
+  const filtered = useMemo(() => scopedRisks.filter(r => {
+    const path = findOrgPath(r.businessUnit, orgStructure)
+    return (
+      (!filters.branch || path.branch === filters.branch) &&
+      (!filters.chiefDirectorate || path.chiefDirectorate === filters.chiefDirectorate) &&
+      (!filters.businessUnit || r.businessUnit === filters.businessUnit) &&
+      (!filters.cat || r.category === filters.cat) &&
+      (!filters.status || r.status === filters.status) &&
+      (!filters.q ||
+        r.risk.toLowerCase().includes(filters.q.toLowerCase()) ||
+        r.businessUnit.toLowerCase().includes(filters.q.toLowerCase()))
+    )
+  }), [scopedRisks, filters, orgStructure])
 
   const outcomes = useMemo(() => [...new Set(filtered.map(r => r.outcome))], [filtered])
 
   return (
     <div className="view-enter">
       <Toolbar
-        businessUnits={businessUnits}
+        orgStructure={orgStructure}
         categories={categories}
         filters={filters}
         setFilters={setFilters}
-        buLocked={isOfficial}
-        canAddRisk={role === 'riskmgmt'}
+        lockLevel={lockLevel}
+        canAddRisk={canCreateRisk(role, periodOpen)}
         onAddRisk={onAddRisk}
       />
       {outcomes.length === 0 ? (

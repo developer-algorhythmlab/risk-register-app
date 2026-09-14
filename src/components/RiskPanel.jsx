@@ -1,9 +1,23 @@
 import { useState } from 'react'
 import { scoreClass, statusLabel, formatDateShort, formatDateTime } from '../utils/helpers.jsx'
+import { ROLES } from '../data/orgStructure.js'
+import { complianceActByName } from '../data/complianceUniverse.js'
+import { approverStageForRole, canEditRisk } from '../utils/permissions.js'
 import TrendChart from './TrendChart.jsx'
 import DiffList from './DiffList.jsx'
 
-const ACTION_ICON = { created: '＋', edited: '✎', proposed: '⇢', approved: '✓', rejected: '✕' }
+const ACTION_ICON = { created: '＋', edited: '✎', proposed: '⇢', 'changes-requested': '↩', approved: '✓', rejected: '✕' }
+
+const STATUS_TONE = {
+  Draft: 'neutral', Submitted: 'info', 'Changes Required': 'warn', Rejected: 'bad', Approved: 'good'
+}
+
+const EDIT_LABEL = {
+  Draft: 'Continue draft',
+  'Changes Required': 'Rework & resubmit',
+  Rejected: 'Rework & resubmit',
+  Approved: 'Propose reassessment'
+}
 
 function HistoryItem({ entry }) {
   const [open, setOpen] = useState(false)
@@ -29,13 +43,14 @@ function HistoryItem({ entry }) {
   )
 }
 
-export default function RiskPanel({ risk, role, onClose, onEdit, onPropose, onRequestUpdate, onReviewProposal, onAddComment }) {
+export default function RiskPanel({ risk, role, periodOpen, onClose, onOpenForm, onRequestUpdate, onReviewProposal, onAddComment }) {
   const [commentText, setCommentText] = useState('')
   const [showAllHistory, setShowAllHistory] = useState(false)
 
   if (!risk) return null
-  const isRiskMgmt = role === 'riskmgmt'
-  const hasPending = Boolean(risk.pendingChange)
+  const myStage = approverStageForRole(role)
+  const isMyStage = myStage && risk.approvalStage === myStage
+  const iCanEdit = canEditRisk(risk, role, { businessUnit: risk.businessUnit }, periodOpen)
   const history = [...(risk.history || [])].reverse()
   const visibleHistory = showAllHistory ? history : history.slice(0, 3)
   const scoreHistory = risk.scoreHistory || []
@@ -52,22 +67,22 @@ export default function RiskPanel({ risk, role, onClose, onEdit, onPropose, onRe
       <div className="panel">
         <div className="panel-head">
           <div>
-            <h3>{risk.risk}</h3>
+            <h3>{risk.risk}{risk.riskType === 'Compliance' && <span className="type-badge on-dark">Compliance</span>}</h3>
             <div className="meta">{risk.businessUnit} · {risk.category} · Target date {risk.targetDate}</div>
           </div>
           <button className="x" onClick={onClose} aria-label="Close">&times;</button>
         </div>
         <div className="panel-body">
-          {hasPending && (
-            <div className="pending-banner">
-              <div>
-                <strong>Change proposed</strong> by {risk.pendingChange.proposedBy} on {formatDateShort(risk.pendingChange.proposedAt)} — awaiting risk management approval.
-              </div>
-              {isRiskMgmt && (
-                <button type="button" className="btn sm" onClick={onReviewProposal}>Review changes</button>
-              )}
+          <div className={'approval-banner tone-' + STATUS_TONE[risk.approvalStatus]}>
+            <div>
+              <strong>{risk.approvalStatus}</strong>
+              {risk.approvalStatus === 'Submitted' && ` — awaiting ${ROLES[risk.approvalStage]?.label} review`}
+              {risk.pendingChange?.submittedAt && risk.approvalStatus === 'Submitted' && ` · submitted by ${risk.pendingChange.submittedBy} on ${formatDateShort(risk.pendingChange.submittedAt)}`}
             </div>
-          )}
+            {isMyStage && (
+              <button type="button" className="btn sm" onClick={onReviewProposal}>Review submission</button>
+            )}
+          </div>
 
           <div className="field-row">
             <div className="field">
@@ -92,6 +107,20 @@ export default function RiskPanel({ risk, role, onClose, onEdit, onPropose, onRe
           <div className="block-title">Current controls</div>
           <ul className="plain">{risk.controls.map((x, i) => <li key={i}>{x}</li>)}</ul>
 
+          {risk.riskType === 'Compliance' && (
+            <>
+              <div className="block-title">Legislative reference</div>
+              <div className="field-row">
+                <div className="field"><label>Act / Regulation</label><div className="val">{risk.act}</div></div>
+                <div className="field"><label>Category</label><div className="val">{complianceActByName(risk.act)?.category}</div></div>
+              </div>
+              <div className="field" style={{ marginBottom: 14 }}>
+                <label>Provision reference &amp; regulatory requirement</label>
+                <div className="val sub">{risk.provisionReference}</div>
+              </div>
+            </>
+          )}
+
           <div className="block-title">Action plan &amp; progress</div>
           {risk.actionPlan.map((a, i) => (
             <div className="ap-item" key={i}>
@@ -102,8 +131,12 @@ export default function RiskPanel({ risk, role, onClose, onEdit, onPropose, onRe
           ))}
 
           <div className="field-row" style={{ marginTop: 6 }}>
-            <div className="field"><label>Risk owner</label><div className="val">{risk.owner}</div></div>
+            <div className="field"><label>Accountable unit</label><div className="val">{risk.ownership?.accountableUnit}</div></div>
             <div className="field"><label>Risk response</label><div className="val">{risk.response}</div></div>
+          </div>
+          <div className="field" style={{ marginBottom: 14 }}>
+            <label>Responsible person(s)</label>
+            <ul className="plain">{(risk.ownership?.responsiblePersons || []).map((p, i) => <li key={i}>{p}</li>)}</ul>
           </div>
 
           {scoreHistory.length >= 2 && (
@@ -136,7 +169,7 @@ export default function RiskPanel({ risk, role, onClose, onEdit, onPropose, onRe
                 <div className="comment-item" key={c.id}>
                   <div className="comment-head">
                     <strong>{c.author}</strong>
-                    <span className="sub">{c.role === 'riskmgmt' ? 'Risk management office' : 'Risk official'} · {formatDateTime(c.timestamp)}</span>
+                    <span className="sub">{ROLES[c.role]?.label || c.role} · {formatDateTime(c.timestamp)}</span>
                   </div>
                   <div className="comment-text">{c.text}</div>
                 </div>
@@ -153,13 +186,14 @@ export default function RiskPanel({ risk, role, onClose, onEdit, onPropose, onRe
         </div>
         <div className="panel-foot">
           <button className="btn ghost" onClick={onClose}>Close</button>
-          {isRiskMgmt ? (
-            <button className="btn" onClick={onEdit}>Edit risk</button>
-          ) : (
+          {role === 'businessunit' && (
             <>
               <button className="btn ghost" onClick={onRequestUpdate}>Request assessment update</button>
-              <button className="btn" onClick={onPropose} disabled={hasPending} title={hasPending ? 'A proposal is already awaiting approval' : undefined}>
-                {hasPending ? 'Proposal pending' : 'Propose changes'}
+              <button
+                className="btn" onClick={onOpenForm} disabled={!iCanEdit}
+                title={!periodOpen ? 'The capture period is closed' : !iCanEdit ? 'Not editable while under review' : undefined}
+              >
+                {EDIT_LABEL[risk.approvalStatus] || 'Edit'}
               </button>
             </>
           )}
